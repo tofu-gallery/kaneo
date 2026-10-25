@@ -98,6 +98,7 @@ import { isCloud } from "./utils/is-cloud";
 import { isDisposableEmail } from "./utils/is-disposable-email";
 import { isLocalSignInPath } from "./utils/is-local-sign-in-path";
 import { trackPasswordResetDelivery } from "./utils/password-reset-delivery";
+import { assertFirstAccountAllowed } from "./utils/tofu-first-account";
 import {
   assertEmailCodeRecipientAllowed,
   assertGuestRegistrationAllowed,
@@ -768,6 +769,17 @@ export const auth = betterAuth({
       },
       create: {
         before: async (user, ctx) => {
+          // Tofu (2026-10-25): while no account exists, the first one needs
+          // the owner's KANEO_ADMIN_PASSWORD (utils/tofu-first-account.ts).
+          if (
+            !(user as Partial<UserWithAnonymous>).isAnonymous &&
+            !(await hasRegisteredUsers())
+          ) {
+            assertFirstAccountAllowed({
+              path: ctx?.path,
+              password: ctx?.body?.password,
+            });
+          }
           await assertUserRegistrationAllowed(
             user as Partial<UserWithAnonymous> & { email: string },
             {
