@@ -33,26 +33,7 @@
   <meta name="application-name" content="Kaneo">
   <link rel="canonical" href="https://kaneo.app">
 
-  <script>
-    if (window.location.hostname === 'demo.kaneo.app') {
-      const script = document.createElement('script');
-      script.defer = true;
-      script.setAttribute('data-domain', 'demo.kaneo.app');
-      script.src = 'https://plausible.kaneo.app/js/script.js';
-      document.head.appendChild(script);
-    }
-
-    if (window.location.hostname === 'cloud.kaneo.app') {
-      window.plausible = window.plausible || function () {
-        (window.plausible.q = window.plausible.q || []).push(arguments);
-      };
-      const script = document.createElement('script');
-      script.defer = true;
-      script.setAttribute('data-domain', 'cloud.kaneo.app');
-      script.src = 'https://plausible.kaneo.app/js/script.js';
-      document.head.appendChild(script);
-    }
-  </script>
+  <!-- Tofu (2026-10-25): upstream's Plausible analytics snippet (loaded only on demo.kaneo.app and cloud.kaneo.app) is removed. -->
 </head>
 
 <body>
