@@ -18,7 +18,7 @@ import * as tables from "./schema";
  */
 export async function enableRowLevelSecurityForDataApi(): Promise<void> {
   try {
-    const names = Object.values(tables)
+    const names = (Object.values(tables) as unknown[])
       .filter((value): value is PgTable => is(value, PgTable))
       .map((table) => getTableConfig(table))
       .filter((config) => (config.schema ?? "public") === "public")
