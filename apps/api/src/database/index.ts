@@ -34,6 +34,7 @@ import {
   workspaceTableRelations,
   workspaceUserTableRelations,
 } from "./relations";
+import { poolConnectionConfig } from "./pool-tls";
 import { resolveDatabaseConfig } from "./resolve-database-url";
 import {
   dataMigrationTable,
@@ -175,7 +176,9 @@ export function getDatabasePool(): Pool {
   if (!pool) {
     const config = resolveDatabaseConfig();
     pool = new Pool({
-      connectionString: config.connectionString,
+      // Tofu (2026-10-25): TLS follows the URL's sslmode (./pool-tls.ts), so
+      // `?sslmode=require` works against a managed database's pooler.
+      ...poolConnectionConfig(config.connectionString),
       // Fail fast when Railway's internal network is slow rather than hanging
       // indefinitely and blocking every API request.
       connectionTimeoutMillis: 5_000,
