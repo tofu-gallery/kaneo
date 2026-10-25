@@ -37,6 +37,7 @@ import {
   validationHookWithMessage,
 } from "./errors/validation-error";
 import { prepareDatabaseStartup } from "./database/prepare-database-startup";
+import { enableRowLevelSecurityForDataApi } from "./database/tofu-data-api";
 import { waitForDatabase } from "./database/wait-for-database";
 import discordIntegration from "./discord-integration";
 import { eventContext } from "./events";
@@ -1008,6 +1009,9 @@ export async function runStartupTasks() {
   await migrateGitHubIntegration();
   await migrateColumns();
   await seedDefaultWorkspaceRoles();
+  // Tofu (2026-10-25): row-level security on Kaneo's tables for Supabase's
+  // Data API (database/tofu-data-api.ts).
+  await enableRowLevelSecurityForDataApi();
 
   initializePlugins();
   initializeScheduler();
