@@ -2,6 +2,8 @@ import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import type { ComponentType } from "react";
 import { afterEach, beforeEach, expect, it, vi } from "vite-plus/test";
 
+const loopbackCallback = "http://127.0.0.1:53682/callback";
+
 const m = vi.hoisted(() => ({
   request: {} as Record<string, unknown>,
   mutate: vi.fn(),
@@ -49,7 +51,7 @@ beforeEach(() => {
     isLoading: false,
     data: {
       clientName: "Claude Desktop",
-      redirectUri: "http://127.0.0.1:53682/callback",
+      redirectUri: loopbackCallback,
     },
   };
 });
@@ -61,9 +63,7 @@ it("shows who is asking, where it returns, and which account it gets", () => {
   expect(
     screen.getByText("auth:mcp.authorize.selfReported"),
   ).toBeInTheDocument();
-  expect(
-    screen.getByText("http://127.0.0.1:53682/callback"),
-  ).toBeInTheDocument();
+  expect(screen.getByText(loopbackCallback)).toBeInTheDocument();
   expect(screen.getByText("person@example.com")).toBeInTheDocument();
 });
 
