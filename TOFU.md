@@ -71,6 +71,7 @@ Every commit on `tofu` starts with `Tofu:` and says why. Every changed file carr
 - **The integrations** (GitHub, Gitea, GitLab, Slack, Mattermost, Discord, Telegram, webhooks) need their own keys or addresses, which only the owner can supply.
 - **Live updates** go over WebSockets through one server process, since Kaneo keeps them in memory without `REDIS_URL`. If more than one instance of the copy runs, a change made through another instance shows after a reload.
 - **No telemetry.** The API reports errors to Sentry only with `SENTRY_DSN`, which a copy leaves unset. The web app's own Sentry stays off, because nothing replaces its `KANEO_SENTRY_DSN` placeholder. Kaneo checks for no updates. The version in the sidebar links to upstream's changelog.
+- **No sign-in rate limit, and sessions record Tofu's proxy address.** Better Auth's rate limiting is on only with `KANEO_CLOUD=true` (`rateLimit.enabled` is `isCloud()` in `apps/api/src/auth.ts`), and a copy leaves it unset. The address Kaneo records on each session comes from `apps/api/src/utils/client-ip.ts`, which trusts forwarded addresses only from `127.0.0.0/8` (nginx inside the container). So every session records the address nginx sees, which is Tofu's proxy rather than the visitor.
 - **Leave unset:** `KANEO_CLOUD` (Kaneo's hosted service: billing, trial reminders, a CAPTCHA), `DEMO_MODE`, and `POSTGRES_*` (ignored while `DATABASE_URL` is set).
 - The API and nginx run as root inside the container (see the `Dockerfile` above).
 
@@ -82,7 +83,6 @@ Every commit on `tofu` starts with `Tofu:` and says why. Every changed file carr
 - Whether Tofu's check of a new version waits long enough. Until migrations finish (10 to 15 s here on an empty database), nothing listens on `PORT`.
 - Creating the first account with `KANEO_ADMIN_PASSWORD`, inviting a second person by link, and the board, list and timeline views.
 - Deleting a label behind the real transaction pooler, several times in a row.
-- Whether visitors' own addresses reach Kaneo's sign-in rate limits, or every visitor appears as Tofu's proxy.
 
 ## Licence
 
