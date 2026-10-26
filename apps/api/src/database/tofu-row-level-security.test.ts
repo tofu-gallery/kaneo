@@ -33,11 +33,12 @@ const SYSTEM_SCHEMAS = new Set([
   "information_schema",
   "pg_catalog",
 ]);
+// Folders Tofu's import leaves out, so its safety check never reads them. For
+// an app built from its own Dockerfile, as Kaneo is, the import keeps dist and
+// build folders, and the check reads them, so they are read here too.
 const SKIPPED_DIRECTORIES = new Set([
   ".git",
   "node_modules",
-  "dist",
-  "build",
   ".turbo",
   ".output",
 ]);
