@@ -100,6 +100,7 @@ RUN pnpm run build
 # with the copy's own values when the container starts. Tofu treats a file named .env.* as private: its GitHub import
 # keeps this one, but a coding agent's folder upload leaves it out, and without the placeholders the web app would
 # have no API address.
+# Tofu (2026-10-26): apps/web/.env.production is now removed, so these four lines are where the web build gets them.
 ENV VITE_API_URL=KANEO_API_URL \
   VITE_CLIENT_URL=KANEO_CLIENT_URL \
   VITE_TURNSTILE_SITE_KEY=KANEO_TURNSTILE_SITE_KEY \
