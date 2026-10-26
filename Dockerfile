@@ -96,11 +96,11 @@ RUN pnpm install --frozen-lockfile
 WORKDIR /app/packages/permissions
 RUN pnpm run build
 
-# Tofu (2026-10-25): the placeholders apps/web/.env.production gives the build, set here as well; env.sh replaces them
-# with the copy's own values when the container starts. Tofu treats a file named .env.* as private: its GitHub import
-# keeps this one, but a coding agent's folder upload leaves it out, and without the placeholders the web app would
-# have no API address.
-# Tofu (2026-10-26): apps/web/.env.production is now removed, so these four lines are where the web build gets them.
+# Tofu (2026-10-25): the placeholders upstream's apps/web/.env.production gave the build. env.sh replaces all but
+# KANEO_SENTRY_DSN with the copy's own values when the container starts. Without them the build would fall back to
+# http://localhost:1337 for the API, which for a visitor is their own computer rather than the copy.
+# Tofu (2026-10-26): apps/web/.env.production is now removed (Tofu's folder upload leaves out, and its ZIP upload
+# refuses, a private .env file), so these four lines are where the web build gets the placeholders.
 ENV VITE_API_URL=KANEO_API_URL \
   VITE_CLIENT_URL=KANEO_CLIENT_URL \
   VITE_TURNSTILE_SITE_KEY=KANEO_TURNSTILE_SITE_KEY \
