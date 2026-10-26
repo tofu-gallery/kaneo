@@ -54,8 +54,12 @@ export async function migrateSessionColumn() {
           "✅ Successfully renamed active_workspace_id to active_organization_id",
         );
       } else if (hasNewColumn.rows.length > 0) {
+        // Tofu (2026-10-26): upstream says "already exists" here, and every start
+        // that finds this step done prints it. On Tofu "already exists" in a log
+        // means two starts made the same object at once, so these two notices
+        // say "is in place" instead; nothing else changes.
         console.log(
-          "✅ active_organization_id column already exists; skipping migration.",
+          "✅ active_organization_id column is in place; skipping migration.",
         );
       } else if (hasOldColumn.rows.length === 0) {
         console.log(
@@ -116,8 +120,9 @@ export async function migrateSessionColumn() {
           "✅ Successfully added created_at column to invitation table",
         );
       } else {
+        // Tofu (2026-10-26): "is in place" rather than "already exists" (see above).
         console.log(
-          "✅ created_at column already exists in invitation table; skipping migration.",
+          "✅ created_at column is in place in invitation table; skipping migration.",
         );
       }
     } else {
