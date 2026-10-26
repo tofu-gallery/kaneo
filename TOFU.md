@@ -3,7 +3,7 @@
 This repository is Tofu's copy of **usekaneo/kaneo** (licence: MIT), listed in Tofu's app gallery as **Kaneo**: project management for a small team. Each project's tasks can be seen as a board, a list, a calendar or a timeline (Gantt), with a backlog, labels, priorities, due dates, assignees, comments and time tracking, and people join a workspace by invitation.
 
 - `main` mirrors the upstream repository and is never committed to by Tofu.
-- `tofu` carries Tofu's own changes; tags named `pin/<date>` mark the versions the gallery points to. The current pin is `pin/2026-10-26`.
+- `tofu` carries Tofu's own changes; tags named `pin/<date>` mark the versions the gallery points to. The current pin is `pin/2026-10-26.1`.
 - A visitor who chooses this app gets a private snapshot of the pinned version in their own Tofu account. Their copy does not follow upstream updates.
 - Upstream: https://github.com/usekaneo/kaneo at `dc0887b9e19b15b0a26842941ec4cb3345b13333` (2026-10-25): the v2.47.1 release plus one commit, which releases upstream's MCP package (0.1.14). The app reports itself as v2.47.1.
 
@@ -33,11 +33,11 @@ This repository is Tofu's copy of **usekaneo/kaneo** (licence: MIT), listed in T
 
 ## What Tofu changes
 
-Every commit on `tofu` starts with `Tofu:` and says why. Every changed file carries a dated `Tofu (...)` note at the change, except `i18n/en-US.json` (JSON takes no comments; the change is listed here).
+Every commit on `tofu` starts with `Tofu:` and says why. Every changed file carries a dated `Tofu (...)` note at the change, except `i18n/en-US.json` (JSON takes no comments) and `apps/web/src/routes/mcp.authorize.test.tsx`; their changes are listed here.
 
 - `Dockerfile` (new): upstream's `Dockerfile.kaneo`, which stays unchanged, with these changes, each marked in the file:
   - The build stages drop `--platform=$BUILDPLATFORM`. It only matters when building for another architecture; Tofu builds for the one it runs on.
-  - The web build's stage sets `VITE_API_URL`, `VITE_CLIENT_URL`, `VITE_TURNSTILE_SITE_KEY` and `VITE_SENTRY_DSN` to the placeholders `apps/web/.env.production` gives them, which `env.sh` replaces with the copy's values when the container starts. Tofu treats a file named `.env.*` as private. Its GitHub import keeps this one, but a coding agent's folder upload leaves it out, and without the placeholders the web app would have no API address.
+  - The web build's stage sets `VITE_API_URL`, `VITE_CLIENT_URL`, `VITE_TURNSTILE_SITE_KEY` and `VITE_SENTRY_DSN` to the placeholders upstream's `apps/web/.env.production` gave them, which `env.sh` replaces with the copy's values when the container starts. Tofu removed that file (see below), so these four values are where the web build gets the placeholders; without them the web app would have no API address.
   - No `USER 1001:0`. Tofu sends visitors to `PORT`, which is 80 unless the app sets another, and only root may listen on a port below 1024. nginx's own worker processes still run as an unprivileged user, and the API runs as root.
   - The image starts with `/bin/sh /usr/local/bin/tofu-entrypoint.sh`. Tofu starts every file without its executable bit, so the entrypoint runs through `sh`. The three scripts upstream marks executable are still `chmod +x`'d by the `Dockerfile` after they are copied, as upstream does.
   - `HEALTHCHECK` asks the port nginx listens on (`PORT`, else 5173).
@@ -57,9 +57,18 @@ Every commit on `tofu` starts with `Tofu:` and says why. Every changed file carr
 - `apps/api/src/database/tofu-data-api.ts` (new) and `apps/api/src/index.ts`: Tofu's databases are Supabase PostgreSQL. A database whose default privileges still give every new table in `public` to the Data API's roles (`anon`, `authenticated`) would let anyone holding the project's public key read and change Kaneo's tables through the Data API, accounts, sessions and API keys included. Every Tofu database made before 2026-10-30 is one. As the last step under the schema lock, Kaneo turns on row-level security, with no policy, for every ordinary table its role owns in `public` and in `drizzle` (Drizzle's bookkeeping): 46 on a new database. With no policy, those roles see no row and can write none. Kaneo's own connection owns the tables, so row-level security does not limit it. The step never turns row-level security off, leaves tables Kaneo's role does not own as they are, and does nothing on a PostgreSQL without those roles. If it fails, the start stops rather than leave tables open.
 - `apps/api/src/utils/tofu-first-account.ts` (new), `apps/api/src/auth.ts` and `i18n/en-US.json`: the admin password for the first account (see "The first account"). The check runs where Kaneo already checks every new account (Better Auth's `user.create.before` hook), and only while no account exists. The English first-run page adds one sentence about the password; the other 20 languages keep upstream's words, and the refusal (in English) says what to do.
 - `apps/web/index.html`: upstream's Plausible analytics snippet is removed. It only loaded on `demo.kaneo.app` and `cloud.kaneo.app`, never on a copy's address.
+- `apps/api/src/database/tofu-row-level-security.sql` (new) and `apps/api/src/database/tofu-row-level-security.test.ts` (new): Tofu's safety check reads every `.sql` file in a repository, comments included, and warns about each table one of them makes unless some `.sql` file turns on row-level security for it. It does not run the app, so it cannot see the start-up step above. So a copy's first deploy carried 50 safety-check warnings, all false for the copy, and the note in its answer told the visitor's coding agent about 20 of them. 49 were tables with "no access rules", and one was the address in the web test below. Nothing runs the new SQL file. It says in SQL what the start-up step does, with one `ALTER TABLE IF EXISTS public."<name>" ENABLE ROW LEVEL SECURITY;` line for each of the 49 tables that the repository's other `.sql` files make:
+  - the 46 tables of `apps/api/drizzle`. A new database keeps 45 of them, since upstream's start-up drops `github_integration` (`apps/api/src/plugins/github/migration.ts`);
+  - the three tables of `scripts/ui-review-bot/worker/schema.sql`, which belong to the Cloudflare D1 (SQLite) database of upstream's review bot. Kaneo never uses that database, so their lines do nothing.
+  The test reads every `.sql` file in the repository with the safety check's own two patterns. It fails, naming the tables, when the file's list and the tables the other `.sql` files make differ in either direction, and when the file itself makes a table. So a table that a new upstream migration adds fails the test instead of bringing a warning back. The start-up step and the schema lock are unchanged.
+- `apps/web/src/routes/mcp.authorize.test.tsx`: the one other warning of those 50 was this test's loopback callback address, which the safety check read as a sign-in redirect pointing to localhost. The address now sits in one constant, `loopbackCallback`, used where the test's fixture sets the redirect address and where the test expects the page to show it, so the test checks the same thing. The formatter put the shortened expectation on one line.
 - Removed because Tofu's safety check refuses a repository that holds them; neither is needed to build or run the app:
   - `.github/workflows/publish-cli.yml`, a release workflow that runs code it downloads;
   - `tests/api-integration/session-client-ip.test.ts`, an integration test that posts sign-up credentials to a URL its code builds.
+- Removed because Tofu's folder and ZIP upload refuse a file named `.env.*` (the gallery's GitHub import keeps them), so a coding agent could not upload this repository as it was. None of the three is needed to build or run the image:
+  - `apps/web/.env.production` gave the web build the four placeholders, which the `Dockerfile` sets on its own (above). Vite lets environment variables win over `.env` files, so the image's web build is the same, byte for byte (see Verification). Upstream's own `Dockerfile.kaneo` and `apps/web/Dockerfile`, which Tofu does not build, took the placeholders from this file; built from this repository, they would need the same four values set.
+  - `apps/web/.env.development` gave Vite's development server `VITE_API_URL=http://localhost:1337` and `VITE_CLIENT_URL=http://localhost:5173`. A developer who runs the web app with Vite outside the image puts those two lines in `apps/web/.env.local`, the file `ENVIRONMENT_SETUP.md` names for Vite's overrides, which git ignores. Without them the web app still calls the API at `http://localhost:1337`, but sign-in through Google, GitHub or another provider builds its return address from `VITE_CLIENT_URL`.
+  - `apps/api/.env.test.example` was read by nothing. The API's integration tests set those variables themselves (`tests/api-integration/setup.ts`) and take `DATABASE_URL` from the environment or the root `.env`, with a local default, so a developer copies nothing in its place.
 - `TOFU.md`: this file.
 
 ## Start-up when several starts run at once
@@ -108,17 +117,39 @@ Every commit on `tofu` starts with `Tofu:` and says why. Every changed file carr
 - Whether Tofu's check of a new version waits long enough. Until a start's schema step finishes, nothing listens on `PORT`. Here that took 4.3 s on an empty database with 15 ms added each way, and up to 12.4 s for the last of five starts at once.
 - Creating the first account with `KANEO_ADMIN_PASSWORD`, inviting a second person by link, and the board, list and timeline views.
 - Deleting a label behind the real transaction pooler, several times in a row.
+- That a copy's first deploy reports no safety-check warning. Here Tofu's own check, run on this pin's code as the gallery's import reads it, found none (see Verification).
 
 ## Licence
 
-- MIT. `LICENSE` and every copyright notice stay exactly as upstream has them. `Dockerfile`, `tofu-entrypoint.sh`, `apps/api/src/database/pool-tls.ts`, `apps/api/src/database/tofu-data-api.ts`, `apps/api/src/database/tofu-migrations.ts`, `apps/api/src/database/tofu-start-lock.ts` and `apps/api/src/utils/tofu-first-account.ts` are Tofu's own files. Every other changed file carries a dated note, except `i18n/en-US.json` (see above). Tofu removed the two files listed above and nothing else.
+- MIT. `LICENSE` and every copyright notice stay exactly as upstream has them. `Dockerfile`, `tofu-entrypoint.sh`, `apps/api/src/database/pool-tls.ts`, `apps/api/src/database/tofu-data-api.ts`, `apps/api/src/database/tofu-migrations.ts`, `apps/api/src/database/tofu-row-level-security.sql`, `apps/api/src/database/tofu-row-level-security.test.ts`, `apps/api/src/database/tofu-start-lock.ts` and `apps/api/src/utils/tofu-first-account.ts` are Tofu's own files. Every other changed file carries a dated note, except `i18n/en-US.json` and `apps/web/src/routes/mcp.authorize.test.tsx` (see above). Tofu removed the five files listed above and nothing else.
 - The Kaneo name and logo belong to the upstream project; the gallery uses them only to say which app this is.
 - The image bundles the web app's and the API's npm packages (`pnpm-lock.yaml`), each under its own licence, among them the Geist and Geist Mono fonts (SIL Open Font License 1.1, through `@fontsource-variable`). The repository also holds upstream's own website, documentation and mobile app (`apps/site`, `apps/docs`, `apps/mobile`), which the image does not use.
 - MIT asks for no source offer. The app's links to upstream (its changelog, the "Powered by Kaneo" link on public projects) are unchanged.
 
 ## Verification
 
-### 2026-10-26: start-up when several starts run at once (this pin)
+### 2026-10-26: no false safety-check warnings (this pin, `pin/2026-10-26.1`)
+
+On macOS arm64, against 127.0.0.1 only. No Docker, nothing deployed. Node 24.22.1 and pnpm 10.32.1 came from the npm registry (`node-bin-darwin-arm64@24.22.1` and `pnpm@10.32.1`), each tarball's SHA-512 checked against the registry's integrity value. `pnpm install --frozen-lockfile` installed the root package, `apps/api`, `apps/web` and the workspace packages they use.
+
+- **Tofu's own safety check**, run on a commit as the gallery's GitHub import reads it:
+  - `pin/2026-10-26` (`73f2176c4570d793ab9bed3ece884e8b236bdfed`): 50 findings, 49 `rls-disabled` (the 46 tables of `apps/api/drizzle` and the review bot's three) and one `redirect-allowlist` (the web test's address). Its deploy note told the agent about 20 of them.
+  - this pin's code (`3835b4243ddcb3d50e8cb0638798e7490050cfcc`, before this file was brought up to date): `files=4669 pass=true findings=0` and `deploy note: (none)`.
+- **Tofu's rule for folder and ZIP uploads** (`isCredentialFile`), over every file of `git archive`: on `pin/2026-10-26` it refused `apps/api/.env.test.example`, `apps/web/.env.development` and `apps/web/.env.production`. On this pin's code it printed `refused by isCredentialFile: none` (4,667 files).
+- **Tests.** `vp run test:run` in `apps/api` passed 171 files (1,270 tests): the 47 under `apps/api/src`, `tofu-row-level-security.test.ts` among them, and the 124 in `tests/api`. The new test bites in both directions:
+  - with a throwaway `tofu-bite-check.sql` at the repository root that makes a table `bite_check`, it failed, naming `public.bite_check (made in tofu-bite-check.sql)`;
+  - with a throwaway extra line in `tofu-row-level-security.sql` naming `ghost_table`, it failed, naming `public.ghost_table`.
+  Both throwaways were removed, and it passed again. In `apps/web`, `vp test run --config vitest.config.ts src/routes/mcp.authorize.test.tsx` passed all 5 tests.
+- **Checks.** `vp run typecheck` in `apps/api` passed. `vp fmt --check` and `vp lint` found nothing in the two changed test files.
+- **The image builds the same.** `git archive` trees of `pin/2026-10-26` and of this pin's code were each given the same installed dependencies. In each, the `Dockerfile`'s web stage ran as written: `pnpm run build` in `packages/permissions`, then in `apps/web` with the stage's four `ENV` values. The first tree still had `apps/web/.env.production` and `apps/web/.env.development`; the second had neither. Both wrote the same 798 files, byte for byte, source maps included. The API bundle built from this pin's code (`pnpm run build` in `packages/email`, `packages/permissions`, `packages/importers` and `apps/api`) has SHA-256 `3a31c13d179c0da1394e6c14891cd4e1ec9b985a963b4b3d0868899f50591349`, the bundle every run of the next entry used. So the entries below still describe this pin's image.
+- **Five starts at once** on an empty database, with the next entry's scripts and scratch PostgreSQL 14 cluster (TLS on, every statement logged, Supabase-like roles holding the old default privileges), once straight to PostgreSQL and once with 15 ms added each way:
+  - all five answered `/` with 200 both times: after 7.0 s each straight, and after 4.4 to 10.4 s with the delay. No process exited, and the log search found nothing;
+  - one start's log said `applied now: 64` and `turned on now: 46`, and the other four said `applied now: 0` and `turned on now: 0`;
+  - afterwards all 46 tables (45 in `public` and `drizzle.__drizzle_migrations`) had row-level security on. As `anon`, `SELECT 1 FROM <table> LIMIT 1` returned no row or "permission denied" from each, and every insert was refused;
+  - the 45 tables in `public` are all named in `tofu-row-level-security.sql`. Its other four names are the review bot's three tables and `github_integration`, which upstream's start-up drops.
+- All local servers and the scratch database cluster were stopped afterwards.
+
+### 2026-10-26: start-up when several starts run at once (`pin/2026-10-26`)
 
 On macOS arm64, against 127.0.0.1 only. No Docker (its daemon is not running here), nothing deployed. Node 24.22.1 was downloaded into a scratch folder, its SHA-256 checked against nodejs.org's `SHASUMS256.txt`; pnpm 10.32.1 came through Node's corepack.
 
@@ -171,7 +202,7 @@ On macOS arm64, against 127.0.0.1 only. No Docker (its daemon is not running her
 
 ### 2026-10-25: the rest of the copy (`pin/2026-10-25`)
 
-These checks ran on `pin/2026-10-25`. Since then only `apps/api/src/index.ts`, `apps/api/src/database/`, `apps/api/src/utils/migrate-session-column.ts` and this file have changed, so they still describe this pin, with two exceptions. A new database now has 46 tables with row-level security; then it was 45, without Drizzle's bookkeeping table. And the start-up's log lines now read as described above.
+These checks ran on `pin/2026-10-25`. Up to `pin/2026-10-26`, only `apps/api/src/index.ts`, `apps/api/src/database/`, `apps/api/src/utils/migrate-session-column.ts` and this file changed, so they still describe that pin, with two exceptions. A new database now has 46 tables with row-level security; then it was 45, without Drizzle's bookkeeping table. And the start-up's log lines now read as described above.
 
 - **Without executable bits.** `git archive tofu | tar -x`, then `find <dir> -type f -exec chmod a-x {} +`: 0 of 4,665 files were left executable. The install contexts of the `Dockerfile`'s two builder stages were laid out from that tree, file by file as its `COPY` lines name them (the web stage without `apps/web/.env.development`, as `.dockerignore` leaves it out). Then each stage's `RUN` lines ran:
   - both `pnpm install --frozen-lockfile` succeeded (husky printed `.git can't be found`, as in upstream's own image build);
