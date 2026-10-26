@@ -11,7 +11,6 @@ import { OpenAPIHono } from "@hono/zod-openapi";
 import * as Sentry from "@sentry/node";
 import type { Session, User } from "better-auth/types";
 import { eq, sql } from "drizzle-orm";
-import { migrate } from "drizzle-orm/node-postgres/migrator";
 import { Hono } from "hono";
 import { compress } from "hono/compress";
 import { cors } from "hono/cors";
@@ -38,6 +37,7 @@ import {
 } from "./errors/validation-error";
 import { prepareDatabaseStartup } from "./database/prepare-database-startup";
 import { enableRowLevelSecurityForDataApi } from "./database/tofu-data-api";
+import { applyMigrations } from "./database/tofu-migrations";
 import { waitForDatabase } from "./database/wait-for-database";
 import discordIntegration from "./discord-integration";
 import { eventContext } from "./events";
@@ -994,10 +994,10 @@ export async function runStartupTasks() {
       await migrateSessionColumn();
 
       console.log("🔄 Migrating database...");
-      await migrate(getDatabase(), {
-        migrationsFolder: `${currentDir}/../drizzle`,
-      });
-      console.log("✅ Database migrated successfully!");
+      // Tofu (2026-10-26): Drizzle's migrate(), in three round trips rather
+      // than one per statement (database/tofu-migrations.ts).
+      const applied = await applyMigrations(`${currentDir}/../drizzle`);
+      console.log(`✅ Database migrated successfully! (applied now: ${applied})`);
     },
   });
 
