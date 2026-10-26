@@ -1,3 +1,4 @@
+import { AsyncLocalStorage } from "node:async_hooks";
 import { config } from "dotenv-mono";
 import { drizzle } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
@@ -200,12 +201,24 @@ export function getDatabase(): DatabaseInstance {
   return dbInstance;
 }
 
+// Tofu (2026-10-26): while a start runs its schema steps (./tofu-start-lock.ts),
+// `db` is the transaction that holds the schema lock, so every step runs in it.
+const schemaStep = new AsyncLocalStorage<DatabaseInstance>();
+
+export function runInSchemaStep<T>(
+  transaction: DatabaseInstance,
+  step: () => Promise<T>,
+): Promise<T> {
+  return schemaStep.run(transaction, step);
+}
+
 const db = new Proxy({} as DatabaseInstance, {
   get(_target, property, receiver) {
-    const value = Reflect.get(getDatabase(), property, receiver);
+    const database = schemaStep.getStore() ?? getDatabase();
+    const value = Reflect.get(database, property, receiver);
 
     if (typeof value === "function") {
-      return value.bind(getDatabase());
+      return value.bind(database);
     }
 
     return value;

@@ -15,8 +15,9 @@ const BOOKKEEPING = `"drizzle"."__drizzle_migrations"`;
  * files' statements on its own (382 for an empty database, with 64 bookkeeping
  * rows), and through Tofu's pooler every one costs a network round trip while
  * the first request waits. Here the new migrations go to PostgreSQL as one
- * script in one round trip: three in all, and two when nothing is new. A script
- * of several statements runs as one transaction, as Drizzle's loop does.
+ * script in one round trip: three in all, and two when nothing is new. It runs
+ * in the transaction that holds Kaneo's schema lock (./tofu-start-lock.ts), and
+ * on its own a script of several statements is one transaction as well.
  * Returns how many migrations it applied.
  */
 export async function applyMigrations(migrationsFolder: string): Promise<number> {

@@ -38,6 +38,7 @@ import {
 import { prepareDatabaseStartup } from "./database/prepare-database-startup";
 import { enableRowLevelSecurityForDataApi } from "./database/tofu-data-api";
 import { applyMigrations } from "./database/tofu-migrations";
+import { runSchemaStepLocked } from "./database/tofu-start-lock";
 import { waitForDatabase } from "./database/wait-for-database";
 import discordIntegration from "./discord-integration";
 import { eventContext } from "./events";
@@ -989,29 +990,38 @@ export async function runStartupTasks() {
         },
       });
     },
+    // Tofu (2026-10-26): every step below changes or checks the schema, so all
+    // of them run in one transaction that holds Kaneo's schema lock
+    // (database/tofu-start-lock.ts): several starts at once take turns, and
+    // each finds what an earlier one did. The steps after the migrations used
+    // to follow this call; they now run inside it.
     runStartupMigrations: async () => {
-      await migrateWorkspaceUserEmail();
-      await migrateSessionColumn();
+      await runSchemaStepLocked(async () => {
+        await migrateWorkspaceUserEmail();
+        await migrateSessionColumn();
 
-      console.log("🔄 Migrating database...");
-      // Tofu (2026-10-26): Drizzle's migrate(), in three round trips rather
-      // than one per statement (database/tofu-migrations.ts).
-      const applied = await applyMigrations(`${currentDir}/../drizzle`);
-      console.log(`✅ Database migrated successfully! (applied now: ${applied})`);
+        console.log("🔄 Migrating database...");
+        // Tofu (2026-10-26): Drizzle's migrate(), in three round trips rather
+        // than one per statement (database/tofu-migrations.ts).
+        const applied = await applyMigrations(`${currentDir}/../drizzle`);
+        console.log(
+          `✅ Database migrated successfully! (applied now: ${applied})`,
+        );
+
+        // After Drizzle migrations: apikey table must exist so we can align columns
+        // with Better Auth (reference_id + nullable user_id).
+        await migrateApiKeyReferenceId();
+
+        await migrateNotificationPreferencesSchema();
+        await migrateGitHubIntegration();
+        await migrateColumns();
+        await seedDefaultWorkspaceRoles();
+        // Tofu (2026-10-25): row-level security on Kaneo's tables for Supabase's
+        // Data API (database/tofu-data-api.ts).
+        await enableRowLevelSecurityForDataApi();
+      });
     },
   });
-
-  // After Drizzle migrations: apikey table must exist so we can align columns
-  // with Better Auth (reference_id + nullable user_id).
-  await migrateApiKeyReferenceId();
-
-  await migrateNotificationPreferencesSchema();
-  await migrateGitHubIntegration();
-  await migrateColumns();
-  await seedDefaultWorkspaceRoles();
-  // Tofu (2026-10-25): row-level security on Kaneo's tables for Supabase's
-  // Data API (database/tofu-data-api.ts).
-  await enableRowLevelSecurityForDataApi();
 
   initializePlugins();
   initializeScheduler();
