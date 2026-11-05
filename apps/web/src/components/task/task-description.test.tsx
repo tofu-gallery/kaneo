@@ -1,7 +1,10 @@
 import { fireEvent, render, waitFor } from "@testing-library/react";
 import { type Editor, Extension } from "@tiptap/core";
 import TaskItem from "@tiptap/extension-task-item";
+import { EditorView } from "@tiptap/pm/view";
 import { describe, expect, it, vi } from "vite-plus/test";
+import { toast } from "@/lib/toast";
+import { uploadTaskImage } from "@/lib/upload-task-image";
 import TaskDescription from "./task-description";
 
 const mocks = vi.hoisted(() => ({
@@ -106,6 +109,59 @@ describe("TaskDescription", () => {
       );
     } finally {
       mocks.t = originalT;
+    }
+  });
+
+  it("uploads every file dropped at once (#2111)", async () => {
+    const taskId = "multi-drop-task";
+    mocks.editor = null;
+    mocks.save.mockClear();
+    mocks.tasks.set(taskId, { id: taskId, description: "" });
+    // jsdom has no layout, so give ProseMirror a drop position and stub the
+    // scroll-into-view measurement.
+    const posAtCoords = vi
+      .spyOn(EditorView.prototype, "posAtCoords")
+      .mockReturnValue({ pos: 1, inside: -1 });
+    const coordsAtPos = vi
+      .spyOn(EditorView.prototype, "coordsAtPos")
+      .mockReturnValue({ left: 0, right: 0, top: 0, bottom: 0 });
+    const uploadMock = vi.mocked(uploadTaskImage);
+    uploadMock.mockReset();
+    uploadMock.mockImplementation(async ({ file }) => ({
+      url: `/api/asset/${file.name}`,
+      alt: file.name,
+      filename: file.name,
+      kind: "image" as const,
+      mimeType: file.type,
+      size: file.size,
+    }));
+    vi.mocked(toast.success).mockClear();
+    try {
+      const { unmount } = render(<TaskDescription taskId={taskId} />);
+      await waitFor(() => expect(mocks.editor?.isDestroyed).toBe(false));
+      const editor = mocks.editor!;
+
+      const files = ["first.png", "second.png"].map(
+        (name) => new File(["bytes"], name, { type: "image/png" }),
+      );
+      fireEvent.drop(editor.view.dom, {
+        dataTransfer: { files, getData: () => "" },
+      });
+
+      await waitFor(() => expect(toast.success).toHaveBeenCalledTimes(2));
+      expect(uploadMock).toHaveBeenCalledTimes(2);
+      expect(editor.getHTML()).toContain("/api/asset/first.png");
+      expect(editor.getHTML()).toContain("/api/asset/second.png");
+      // Let the debounced save land before the next test clears its mock.
+      await waitFor(() =>
+        expect(mocks.save.mock.calls.at(-1)?.[0].description).toContain(
+          "second.png",
+        ),
+      );
+      unmount();
+    } finally {
+      posAtCoords.mockRestore();
+      coordsAtPos.mockRestore();
     }
   });
 
@@ -272,5 +328,29 @@ describe("TaskDescription", () => {
 
     expect(container.textContent).toContain("parent body");
     expect(container.textContent).not.toContain("child body");
+  });
+  // A full-width transparent popup swallows clicks beside a small image (#2174).
+  it("shrinks the image preview popup to the image (#2174)", async () => {
+    mocks.tasks.set("image-task", {
+      id: "image-task",
+      description: "![shot](https://example.com/shot.png)",
+    });
+
+    const { container } = render(<TaskDescription taskId="image-task" />);
+    const image = await waitFor(() => {
+      const found = container.querySelector("img.kaneo-editor-image");
+      expect(found).not.toBeNull();
+      return found as HTMLImageElement;
+    });
+
+    fireEvent.click(image);
+
+    const popup = await waitFor(() => {
+      const found = document.querySelector('[data-slot="dialog-popup"]');
+      expect(found).not.toBeNull();
+      return found as HTMLElement;
+    });
+    expect(popup.className).toContain("w-auto");
+    expect(popup.className).not.toContain("w-full");
   });
 });

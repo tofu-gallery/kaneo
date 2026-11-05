@@ -13,6 +13,7 @@ import {
 import { useMemo, useRef, useState } from "react";
 import {
   FlatList,
+  KeyboardAvoidingView,
   ScrollView,
   TextInput,
   useWindowDimensions,
@@ -120,7 +121,7 @@ export default function BoardScreen() {
     // oxlint-disable-next-line react-hooks/exhaustive-deps -- buildLanes resolves virtual lane labels through i18n.
     [board.data, filters, showPlanned, showArchived, t],
   );
-  const laneWidth = width - inset * 2 - 36;
+  const laneWidth = Math.min(width - inset * 2 - 36, 360);
   const current = lanes[Math.min(page, Math.max(0, lanes.length - 1))];
   const matching = lanes.reduce((n, l) => n + l.tasks.length, 0);
   const activeFilters = filterCount(filters);
@@ -531,7 +532,8 @@ export default function BoardScreen() {
       {header}
       <View style={{ flex: 1 }}>{body}</View>
 
-      <View
+      <KeyboardAvoidingView
+        behavior="padding"
         style={{ position: "absolute", left: 0, right: 0, bottom: 0 }}
         pointerEvents="box-none"
       >
@@ -641,7 +643,7 @@ export default function BoardScreen() {
             <Plus size={20} color={c.onPrimary} strokeWidth={2} />
           </Touch>
         </View>
-      </View>
+      </KeyboardAvoidingView>
 
       <FilterSheet
         visible={filterSheet}

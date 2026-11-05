@@ -1,3 +1,4 @@
+import { startWebhookWorker } from "./admin/webhooks/start-webhook-worker";
 import integrationSync from "./integration-sync";
 import { syncWorkspaceAccess } from "./ws/workspace-access";
 import { drainPasswordResetDeliveries } from "./utils/password-reset-delivery";
@@ -20,6 +21,11 @@ import admin from "./admin";
 import { auth } from "./auth";
 import { forwardAuthRequest } from "./utils/forward-auth-request";
 import { organizationRoutes } from "./auth-openapi";
+import {
+  handleBackchannelLogoutRoute,
+  MAX_LOGOUT_REQUEST_BYTES,
+  noStore,
+} from "./backchannel-logout";
 import billing from "./billing";
 import calendarFeed, { publicCalendarFeed } from "./calendar-feed";
 import column from "./column";
@@ -63,7 +69,7 @@ import notification from "./notification";
 import notificationPreferences from "./notification-preferences";
 import oauth from "./oauth";
 import { createRoute, errorResponse, jsonResponse, z } from "./openapi";
-import { initializePlugins } from "./plugins";
+import { initializePlugins, integrationPlugins } from "./plugins";
 import { migrateGitHubIntegration } from "./plugins/github/migration";
 import project from "./project";
 import { assertProjectAccess } from "./project-access/assert-project-access";
@@ -87,12 +93,15 @@ import getAvatar from "./user/controllers/get-avatar";
 import { apiKeyRejection } from "./utils/api-key-rejection";
 import { applyApiKeyHeaders } from "./utils/apply-api-key-headers";
 import { authenticateApiRequest } from "./utils/authenticate-api-request";
+import { requireIntegrationProviderEnabled } from "./instance-settings/require-integration-provider-enabled";
 import {
   authorizeAssetAccess,
   isPublicAsset,
 } from "./utils/authorize-asset-access";
+import { boundedRequestBody } from "./utils/bounded-request-body";
 import { getInvitationDetails } from "./utils/check-registration-allowed";
 import { clientIpMiddleware } from "./utils/client-ip";
+import { runCustomOAuthCallback } from "./utils/custom-oauth-sign-in";
 import { migrateApiKeyReferenceId } from "./utils/migrate-apikey-reference-id";
 import { migrateNotificationPreferencesSchema } from "./utils/migrate-notification-preferences-schema";
 import { migrateSessionColumn } from "./utils/migrate-session-column";
@@ -447,6 +456,13 @@ export function createApp() {
     handleGitlabWebhookRoute,
   );
 
+  api.post(
+    "/auth/oauth2/backchannel-logout/custom",
+    noStore,
+    boundedRequestBody(MAX_LOGOUT_REQUEST_BYTES),
+    handleBackchannelLogoutRoute,
+  );
+
   const invitationPublicApi = api.get("/invitation/public/:id", async (c) => {
     const { id } = c.req.param();
     const result = await getInvitationDetails(id);
@@ -468,6 +484,11 @@ export function createApp() {
       ),
     );
   });
+
+  // Lets the sign-in refresh in auth.ts read the claims the provider sent.
+  api.use("/auth/oauth2/callback/custom", (_c, next) =>
+    runCustomOAuthCallback(next),
+  );
 
   api.openapi(
     createRoute({
@@ -526,11 +547,16 @@ export function createApp() {
           workspaceId: schema.assetTable.workspaceId,
           projectId: schema.assetTable.projectId,
           isPublic: schema.projectTable.isPublic,
+          workspaceArchived: sql<boolean>`${schema.workspaceTable.archivedAt} is not null`,
         })
         .from(schema.assetTable)
         .innerJoin(
           schema.projectTable,
           eq(schema.assetTable.projectId, schema.projectTable.id),
+        )
+        .innerJoin(
+          schema.workspaceTable,
+          eq(schema.projectTable.workspaceId, schema.workspaceTable.id),
         )
         .where(eq(schema.assetTable.id, id))
         .limit(1);
@@ -803,6 +829,18 @@ export function createApp() {
     notificationPreferences,
   );
   const searchApi = api.route("/search", search);
+  // Turned-off providers: registered before their routes so they run first.
+  // Inbound provider webhooks are mounted earlier and answer on their own;
+  // their work is skipped through `activeIntegrationCondition`.
+  for (const { type } of integrationPlugins) {
+    api.use(`/${type}-integration/*`, requireIntegrationProviderEnabled(type));
+  }
+  // Saving sync rules and resuming paused links write through the provider.
+  const syncProvider = requireIntegrationProviderEnabled((c) =>
+    c.req.param("provider"),
+  );
+  api.use("/integration-sync/project/:projectId/:provider", syncProvider);
+  api.use("/integration-sync/project/:projectId/:provider/*", syncProvider);
   const integrationSyncApi = api.route("/integration-sync", integrationSync);
   const githubIntegrationApi = api.route(
     "/github-integration",
@@ -858,12 +896,14 @@ export function createApp() {
       assertWebSocketOrigin(c.req.raw.headers);
 
       const userId = c.get("userId");
+      const sessionId = c.get("session")?.id ?? null;
+      const apiKeyId = c.get("apiKey")?.id;
       let conn: ReturnType<typeof addUserConnection> | null = null;
 
       return {
         onOpen(_evt, ws) {
           if (userId) {
-            conn = addUserConnection(userId, ws);
+            conn = addUserConnection(userId, ws, sessionId, apiKeyId);
             void syncWorkspaceAccess(userId, ws);
           }
         },
@@ -911,6 +951,7 @@ export function createApp() {
 
       const windowId = c.req.query("windowId");
       const initiatorId = windowId ? `${userId}:${windowId}` : userId;
+      const sessionId = c.get("session")?.id ?? null;
       let conn: ReturnType<typeof addConnection> | null = null;
 
       return {
@@ -923,6 +964,7 @@ export function createApp() {
               initiatorId,
               workspaceId,
               c.get("apiKey")?.id,
+              sessionId,
             );
           }
         },
@@ -1054,6 +1096,7 @@ export async function startServer(
   );
 
   injectWebSocket(server);
+  const stopWebhookWorker = startWebhookWorker();
 
   const gracefulShutdown = async () => {
     if (shuttingDown) return;
@@ -1061,6 +1104,7 @@ export async function startServer(
 
     console.log("🛑 Shutting down gracefully...");
     shutdownScheduler();
+    await stopWebhookWorker();
     await shutdownWebSocketAdapter();
     server.close();
     const [, signInEmailsDrained] = await Promise.all([

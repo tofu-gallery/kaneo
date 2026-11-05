@@ -4,15 +4,8 @@ import { router, useLocalSearchParams } from "expo-router";
 import { Ellipsis, Link2 } from "lucide-react-native";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
-import {
-  KeyboardAvoidingView,
-  Platform,
-  Share,
-  TextInput,
-  View,
-} from "react-native";
+import { KeyboardAvoidingView, Share, TextInput, View } from "react-native";
 
-import { MarkdownText } from "@/components/markdown";
 import {
   ErrorState,
   Loading,
@@ -26,8 +19,11 @@ import { Txt } from "@/components/text";
 import { useToast } from "@/components/toast";
 import { IconButton, Touch } from "@/components/ui";
 import { Composer } from "@/features/task/composer";
-import { DescriptionEditor } from "@/features/task/description-editor";
 import { Properties } from "@/features/task/properties";
+import { DescriptionToolbar } from "@/features/task/rich-editor/description-toolbar";
+import { InlineDescription } from "@/features/task/rich-editor/inline-description";
+import { useCaretFollow } from "@/features/task/rich-editor/use-caret-follow";
+import { useRichDescription } from "@/features/task/rich-editor/use-rich-description";
 import {
   ActivityFeed,
   CustomFields,
@@ -63,8 +59,12 @@ export default function TaskScreen() {
   const [menu, setMenu] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [movePicker, setMovePicker] = useState(false);
-  const [editingDescription, setEditingDescription] = useState(false);
   const [titleDraft, setTitleDraft] = useState<string | null>(null);
+  const description = useRichDescription(
+    taskId,
+    detail.data?.description ?? "",
+  );
+  const caret = useCaretFollow(description.focused, description.formats);
   const [projects, setProjects] = useState<
     { id: string; name: string; slug: string }[]
   >([]);
@@ -187,7 +187,7 @@ export default function TaskScreen() {
       </TopBar>
 
       <KeyboardAvoidingView
-        behavior={Platform.OS === "ios" ? "padding" : undefined}
+        behavior="padding"
         style={{ flex: 1 }}
         keyboardVerticalOffset={0}
       >
@@ -197,6 +197,7 @@ export default function TaskScreen() {
             void Promise.all([detail.refetch(), extras.refetch()])
           }
           bottomPadding={24}
+          {...caret.scrollProps}
         >
           <View style={{ paddingHorizontal: 20, paddingTop: 20, gap: 22 }}>
             {titleDraft !== null ? (
@@ -235,18 +236,11 @@ export default function TaskScreen() {
               workspaceId={workspaceId}
             />
 
-            <Touch
-              onPress={() => setEditingDescription(true)}
-              accessibilityHint={t("mobile:taskDetail.screen.editDescription")}
-            >
-              {d.description.trim() ? (
-                <MarkdownText>{d.description}</MarkdownText>
-              ) : (
-                <Txt variant="body" tone="placeholder">
-                  {t("mobile:taskDetail.screen.addDescription")}
-                </Txt>
-              )}
-            </Touch>
+            <InlineDescription
+              description={d.description}
+              editor={description}
+              onLayout={caret.onEditorLayout}
+            />
 
             {ex ? (
               <>
@@ -305,25 +299,16 @@ export default function TaskScreen() {
             )}
           </View>
         </Scroll>
-        <Composer
-          taskId={task.id}
-          members={members.data ?? []}
-          replyTo={replyTo}
-        />
+        {description.focused ? (
+          <DescriptionToolbar taskId={task.id} editor={description} />
+        ) : (
+          <Composer
+            taskId={task.id}
+            members={members.data ?? []}
+            replyTo={replyTo}
+          />
+        )}
       </KeyboardAvoidingView>
-
-      <DescriptionEditor
-        visible={editingDescription}
-        onClose={() => setEditingDescription(false)}
-        taskId={task.id}
-        initial={d.description}
-        onSave={async (text) =>
-          !!(await run(async () => {
-            await api.updateDescription(task.id, text);
-            return true;
-          }))
-        }
-      />
       <OptionSheet
         visible={menu}
         onClose={() => setMenu(false)}

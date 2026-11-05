@@ -536,22 +536,17 @@ export default function TaskDescription({ taskId }: TaskDescriptionProps) {
           setEmbedComposerError("");
           return true;
         },
-        handleDrop: (view, event) => {
+        handleDrop: (_view, event) => {
           const droppedFiles = Array.from(event.dataTransfer?.files || []);
-          const droppedFile = droppedFiles[0];
 
-          if (!droppedFile) return false;
+          if (droppedFiles.length === 0) return false;
 
           event.preventDefault();
-          const coordinates = view.posAtCoords({
-            left: event.clientX,
-            top: event.clientY,
-          });
-          const dropRange = coordinates
-            ? { from: coordinates.pos, to: coordinates.pos }
-            : undefined;
-
-          void handleAssetFileUpload(droppedFile, editor, dropRange);
+          // Each upload inserts after the previous one, the same way pasted
+          // files do, so a multi-file drop keeps every file.
+          for (const droppedFile of droppedFiles) {
+            void handleAssetFileUpload(droppedFile, editor);
+          }
           return true;
         },
         handleTextInput: (view, _from, _to, text) => {
@@ -1781,12 +1776,12 @@ export default function TaskDescription({ taskId }: TaskDescriptionProps) {
         }}
       >
         <DialogPopup
-          className="max-w-6xl border-0 bg-transparent p-0 shadow-none before:hidden"
+          className="w-auto max-w-6xl border-0 bg-transparent p-0 shadow-none before:hidden"
           showCloseButton={false}
           bottomStickOnMobile={false}
         >
           {previewImage && (
-            <div className="flex max-h-[90vh] items-center justify-center p-4">
+            <div className="flex max-h-[90vh] items-center justify-center">
               <img
                 src={previewImage.src}
                 alt={previewImage.alt}

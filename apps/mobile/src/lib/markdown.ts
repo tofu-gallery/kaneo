@@ -1,6 +1,8 @@
 import { i18n } from "@/lib/i18n";
 
 import { resolveUrl } from "./api/client";
+import { isLegacyHtml, legacyHtmlToMarkdown } from "./legacy-html";
+import { CHECKED_TASK, UNCHECKED_TASK } from "./task-item";
 
 /**
  * The web editor serializes rich nodes into Markdown as custom HTML tags. Markdown renderers
@@ -27,7 +29,10 @@ function attrs(raw: string): Record<string, string> {
 }
 
 export function toDisplayMarkdown(markdown: string, serverUrl: string): string {
-  let text = markdown.replace(
+  const source = isLegacyHtml(markdown)
+    ? legacyHtmlToMarkdown(markdown)
+    : markdown;
+  let text = source.replace(
     mentionRegex,
     (_, rawAttrs: string, inner: string) => {
       const label = attrs(rawAttrs).label || inner.replace(/^@/, "");
@@ -51,8 +56,8 @@ export function toDisplayMarkdown(markdown: string, serverUrl: string): string {
     }
   });
   text = text
-    .replace(/^(\s*)[-*] \[ \]/gm, "$1- ☐")
-    .replace(/^(\s*)[-*] \[[xX]\]/gm, "$1- ☑");
+    .replace(/^(\s*)[-*] \[ \]/gm, `$1- ${UNCHECKED_TASK}`)
+    .replace(/^(\s*)[-*] \[[xX]\]/gm, `$1- ${CHECKED_TASK}`);
   text = text.replace(
     /(!?\[[^\]]*\]\()(\/api\/[^)\s]+)/g,
     (_, prefix: string, path: string) => prefix + serverUrl + path,
@@ -63,12 +68,19 @@ export function toDisplayMarkdown(markdown: string, serverUrl: string): string {
 /** Plain-text preview for list rows. */
 export function toPlainText(markdown?: string | null): string {
   if (!markdown) return "";
+  // Park escaped characters so the stripping below leaves literal text alone.
   return toDisplayMarkdown(markdown, "")
+    .replace(/\\([!-/:-@[-`{-~])/g, (_, c: string) =>
+      String.fromCharCode(0xe000 + c.charCodeAt(0)),
+    )
     .replace(/!\[[^\]]*\]\([^)]*\)/g, "")
     .replace(/\[([^\]]*)\]\([^)]*\)/g, "$1")
     .replace(/<[^>]+>/g, "")
     .replace(/[*_`#>~]+/g, "")
     .replace(/\s+/g, " ")
+    .replace(/[\ue000-\ue07f]/g, (c) =>
+      String.fromCharCode(c.charCodeAt(0) - 0xe000),
+    )
     .trim();
 }
 
